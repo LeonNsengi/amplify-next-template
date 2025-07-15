@@ -46,7 +46,6 @@ interface AuthEvent {
 }
 
 export default function App() {
-  const [todos, setTodos] = useState<Array<Schema["Todo"]["type"]>>([]);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [userAttributes, setUserAttributes] = useState<UserAttributes>({});
   const [showProfile, setShowProfile] = useState(false);
@@ -75,6 +74,9 @@ export default function App() {
     firstName: "",
     lastName: "",
     phoneNumber: "",
+    organizationName: "",
+    municipality: "",
+    signUpForUpdates: false,
     clientMetadata: {
       source: "custom_signup",
       userType: "standard"
@@ -96,13 +98,6 @@ export default function App() {
   useEffect(() => {
     checkAuthStatus();
   }, []);
-
-  // Subscribe to todos when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      listTodos();
-    }
-  }, [isAuthenticated]);
 
   // Subscribe to authentication events
   useEffect(() => {
@@ -188,13 +183,27 @@ export default function App() {
       if (customSignUpData.phoneNumber) {
         userAttributes.phone_number = customSignUpData.phoneNumber;
       }
+      if (customSignUpData.organizationName) {
+        userAttributes['custom:organization_name'] = customSignUpData.organizationName;
+      }
+      if (customSignUpData.municipality) {
+        userAttributes['custom:municipality'] = customSignUpData.municipality;
+      }
+      if (customSignUpData.signUpForUpdates) {
+        userAttributes['custom:signup_for_updates'] = 'true';
+      }
 
       const signUpInput: SignUpInput = {
         username: customSignUpData.email,
         password: customSignUpData.password,
         options: {
           userAttributes,
-          clientMetadata: customSignUpData.clientMetadata
+          clientMetadata: {
+            ...customSignUpData.clientMetadata,
+            organizationName: customSignUpData.organizationName,
+            municipality: customSignUpData.municipality,
+            signUpForUpdates: customSignUpData.signUpForUpdates.toString()
+          }
         }
       };
 
@@ -245,6 +254,9 @@ export default function App() {
         firstName: "",
         lastName: "",
         phoneNumber: "",
+        organizationName: "",
+        municipality: "",
+        signUpForUpdates: false,
         clientMetadata: {
           source: "custom_signup",
           userType: "standard"
@@ -257,22 +269,6 @@ export default function App() {
     } finally {
       setIsCustomSigningUp(false);
     }
-  }
-
-  function listTodos() {
-    client.models.Todo.observeQuery().subscribe({
-      next: (data) => setTodos([...data.items]),
-    });
-  }
-
-  function createTodo() {
-    client.models.Todo.create({
-      content: window.prompt("Todo content"),
-    });
-  }
-
-  function deleteTodo(id: string) {
-    client.models.Todo.delete({ id });
   }
 
   async function handleSignOut(global: boolean = false) {
@@ -390,6 +386,9 @@ export default function App() {
       family_name: 'Last Name',
       nickname: 'Nickname',
       name: 'Full Name',
+      'custom:organization_name': 'Organization Name',
+      'custom:municipality': 'Municipality',
+      'custom:signup_for_updates': 'Sign Up for Updates',
       'custom:display_name': 'Display Name'
     };
     return displayNames[key] || key;
@@ -424,7 +423,7 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <main style={{ maxWidth: "600px", margin: "50px auto", padding: "20px" }}>
-        <h1 style={{ textAlign: "center", marginBottom: "30px" }}>Welcome to Todo App</h1>
+        <h1 style={{ textAlign: "center", marginBottom: "30px" }}>Welcome to Green Space App</h1>
         
         {error && <div style={{ color: "red", marginBottom: "20px", padding: "10px", backgroundColor: "#ffe6e6", borderRadius: "4px" }}>{error}</div>}
 
@@ -433,7 +432,7 @@ export default function App() {
           <div style={{ marginBottom: "20px", padding: "20px", border: "1px solid #ddd", borderRadius: "8px", backgroundColor: "#f8f9fa" }}>
             <h2>Create Account</h2>
             <p style={{ fontSize: "14px", color: "#666", marginBottom: "15px" }}>
-              Sign up with your details and user attributes
+              Sign up with your details and organization information
             </p>
             
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "15px" }}>
@@ -455,6 +454,27 @@ export default function App() {
                   onChange={(e) => setCustomSignUpData(prev => ({ ...prev, password: e.target.value }))}
                   style={{ width: "100%", padding: "8px" }}
                   required
+                />
+              </div>
+              <div>
+                <label>Organization Name: *</label>
+                <input
+                  type="text"
+                  value={customSignUpData.organizationName}
+                  onChange={(e) => setCustomSignUpData(prev => ({ ...prev, organizationName: e.target.value }))}
+                  style={{ width: "100%", padding: "8px" }}
+                  placeholder="Enter your organization name"
+                  required
+                />
+              </div>
+              <div>
+                <label>Municipality (optional):</label>
+                <input
+                  type="text"
+                  value={customSignUpData.municipality}
+                  onChange={(e) => setCustomSignUpData(prev => ({ ...prev, municipality: e.target.value }))}
+                  style={{ width: "100%", padding: "8px" }}
+                  placeholder="Enter your municipality"
                 />
               </div>
               <div>
@@ -507,10 +527,21 @@ export default function App() {
               </div>
             </div>
             
+            <div style={{ marginBottom: "15px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <input
+                  type="checkbox"
+                  checked={customSignUpData.signUpForUpdates}
+                  onChange={(e) => setCustomSignUpData(prev => ({ ...prev, signUpForUpdates: e.target.checked }))}
+                />
+                Sign up for updates and newsletters
+              </label>
+            </div>
+            
             <div>
               <button 
                 onClick={handleCustomSignUp}
-                disabled={isCustomSigningUp || !customSignUpData.email || !customSignUpData.password}
+                disabled={isCustomSigningUp || !customSignUpData.email || !customSignUpData.password || !customSignUpData.organizationName}
                 style={{ marginRight: "10px", padding: "8px 16px", backgroundColor: "#28a745", color: "white", border: "none", borderRadius: "4px" }}
               >
                 {isCustomSigningUp ? "Creating Account..." : "Create Account"}
@@ -847,19 +878,12 @@ export default function App() {
       )}
       
       <div style={{ marginBottom: "20px" }}>
-        <button onClick={createTodo}>+ new</button>
+        <h2>Welcome to Green Space Management</h2>
+        <p>You are now signed in and can manage your green spaces and projects.</p>
       </div>
       
-      <ul>
-        {todos.map((todo) => (
-          <li key={todo.id} onClick={() => deleteTodo(todo.id)}>
-            {todo.content}
-          </li>
-        ))}
-      </ul>
-      
       <div>
-        🥳 App successfully hosted. Try creating a new todo.
+        🥳 App successfully hosted. Your authentication is working properly.
         <br />
         <a href="https://docs.amplify.aws/nextjs/start/quickstart/nextjs-app-router-client-components/">
           Review next steps of this tutorial.
