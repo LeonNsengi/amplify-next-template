@@ -7,6 +7,8 @@ import "./../app/app.css";
 import { Amplify } from "aws-amplify";
 import outputs from "@/amplify_outputs.json";
 import "@aws-amplify/ui-react/styles.css";
+import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 import { 
   signOut, 
   fetchUserAttributes, 
@@ -170,6 +172,11 @@ export default function App() {
     setError("");
 
     try {
+      // Validate phone number if provided
+      if (customSignUpData.phoneNumber && !isValidPhoneNumber(customSignUpData.phoneNumber)) {
+        throw new Error('Please enter a valid phone number');
+      }
+
       const userAttributes: Record<string, string> = {
         email: customSignUpData.email
       };
@@ -181,17 +188,13 @@ export default function App() {
         userAttributes.family_name = customSignUpData.lastName;
       }
       if (customSignUpData.phoneNumber) {
+        // The PhoneInput component automatically formats to E.164 format (+1234567890)
+        // which is exactly what AWS Cognito expects
         userAttributes.phone_number = customSignUpData.phoneNumber;
       }
-      if (customSignUpData.organizationName) {
-        userAttributes['custom:organization_name'] = customSignUpData.organizationName;
-      }
-      if (customSignUpData.municipality) {
-        userAttributes['custom:municipality'] = customSignUpData.municipality;
-      }
-      if (customSignUpData.signUpForUpdates) {
-        userAttributes['custom:signup_for_updates'] = 'true';
-      }
+      // Note: Custom attributes are not supported in Amplify Gen2 auth schema
+      // These will be stored in clientMetadata for now
+      // In a production app, you'd typically store these in a separate database table
 
       const signUpInput: SignUpInput = {
         username: customSignUpData.email,
@@ -202,7 +205,13 @@ export default function App() {
             ...customSignUpData.clientMetadata,
             organizationName: customSignUpData.organizationName,
             municipality: customSignUpData.municipality,
-            signUpForUpdates: customSignUpData.signUpForUpdates.toString()
+            signUpForUpdates: customSignUpData.signUpForUpdates.toString(),
+            // Store custom data in clientMetadata for Lambda triggers to process
+            customData: JSON.stringify({
+              organizationName: customSignUpData.organizationName,
+              municipality: customSignUpData.municipality,
+              signUpForUpdates: customSignUpData.signUpForUpdates
+            })
           }
         }
       };
@@ -246,6 +255,26 @@ export default function App() {
         }
       });
 
+      // Create User record in database
+      try {
+        const userRecord = await client.models.User.create({
+          accountType: 'ORGANIZATION', // Default to ORGANIZATION since we're collecting org name
+          name: `${customSignUpData.firstName || ''} ${customSignUpData.lastName || ''}`.trim() || customSignUpData.email,
+          email: customSignUpData.email,
+          organizationName: customSignUpData.organizationName,
+          municipality: customSignUpData.municipality || null,
+          accountTier: 'FREE',
+          isEmailVerified: true,
+          isActive: true,
+          registeredAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        });
+        console.log('User record created:', userRecord);
+      } catch (error) {
+        console.error('Failed to create user record:', error);
+        // Don't throw error here as the user is already signed in
+      }
+
       setShowSignUpConfirmation(false);
       setSignUpConfirmationCode("");
       setCustomSignUpData({
@@ -288,7 +317,32 @@ export default function App() {
     setIsLoadingAttributes(true);
     try {
       const attributes = await fetchUserAttributes();
-      setUserAttributes(attributes);
+      
+      // Get user data from database
+      let userData = null;
+      try {
+        const users = await client.models.User.list({
+          filter: {
+            email: { eq: attributes.email }
+          }
+        });
+        userData = users.data[0];
+      } catch (error) {
+        console.error('Failed to fetch user data from database:', error);
+      }
+      
+      // Combine standard attributes with database data
+      const enhancedAttributes = {
+        ...attributes,
+        // Add custom attributes from database
+        'custom:organization_name': userData?.organizationName || 'Not provided',
+        'custom:municipality': userData?.municipality || 'Not provided',
+        'custom:account_type': userData?.accountType || 'Not provided',
+        'custom:account_tier': userData?.accountTier || 'Not provided',
+        'custom:registered_at': userData?.registeredAt ? new Date(userData.registeredAt).toLocaleDateString() : 'Not provided'
+      };
+      
+      setUserAttributes(enhancedAttributes);
     } catch (error) {
       console.error('Failed to load user attributes:', error);
       setError('Failed to load user profile');
@@ -388,7 +442,9 @@ export default function App() {
       name: 'Full Name',
       'custom:organization_name': 'Organization Name',
       'custom:municipality': 'Municipality',
-      'custom:signup_for_updates': 'Sign Up for Updates',
+      'custom:account_type': 'Account Type',
+      'custom:account_tier': 'Account Tier',
+      'custom:registered_at': 'Registration Date',
       'custom:display_name': 'Display Name'
     };
     return displayNames[key] || key;
@@ -423,6 +479,31 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <main style={{ maxWidth: "600px", margin: "50px auto", padding: "20px" }}>
+        <style jsx>{`
+          .PhoneInput {
+            display: flex;
+            align-items: center;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 0;
+            background: white;
+          }
+          .PhoneInputCountry {
+            margin-right: 8px;
+            padding: 8px;
+            border-right: 1px solid #eee;
+          }
+          .PhoneInputInput {
+            flex: 1;
+            border: none;
+            outline: none;
+            padding: 8px;
+            font-size: 14px;
+          }
+          .PhoneInputInput:focus {
+            box-shadow: none;
+          }
+        `}</style>
         <h1 style={{ textAlign: "center", marginBottom: "30px" }}>Welcome to Green Space App</h1>
         
         {error && <div style={{ color: "red", marginBottom: "20px", padding: "10px", backgroundColor: "#ffe6e6", borderRadius: "4px" }}>{error}</div>}
@@ -499,16 +580,21 @@ export default function App() {
               </div>
               <div>
                 <label>Phone Number (optional):</label>
-                <input
-                  type="tel"
+                <PhoneInput
+                  international
+                  defaultCountry="US"
                   value={customSignUpData.phoneNumber}
-                  onChange={(e) => setCustomSignUpData(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                  style={{ width: "100%", padding: "8px" }}
-                  placeholder="+1-555-123-4567"
+                  onChange={(value) => setCustomSignUpData(prev => ({ ...prev, phoneNumber: value || "" }))}
+                  placeholder="Enter phone number"
                 />
                 <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
-                  Examples: +1-555-123-4567, +44-20-7946-0958, +81-3-1234-5678
+                  Select your country and enter your phone number
                 </div>
+                {customSignUpData.phoneNumber && (
+                  <div style={{ fontSize: "11px", color: "#28a745", marginTop: "4px" }}>
+                    Will be stored as: {customSignUpData.phoneNumber}
+                  </div>
+                )}
               </div>
               <div>
                 <label>User Type:</label>
@@ -743,6 +829,9 @@ export default function App() {
                   <p style={{ fontSize: "14px", color: "#666", marginTop: "10px" }}>
                     <strong>Tip:</strong> You can add attributes like First Name, Last Name, Phone Number, etc. 
                     These will be stored with your account and can be used for personalization.
+                    <br />
+                    <strong>Note:</strong> Custom attributes like Organization Name and Municipality are stored in clientMetadata 
+                    and would typically be processed by Lambda triggers in a production application.
                   </p>
                 </div>
               ) : (

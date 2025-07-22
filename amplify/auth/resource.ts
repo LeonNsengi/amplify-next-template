@@ -8,4 +8,19 @@ export const auth = defineAuth({
   loginWith: {
     email: true,
   },
+  userAttributes: {
+    // Standard attributes
+    givenName: {
+      mutable: true,
+      required: false,
+    },
+    familyName: {
+      mutable: true,
+      required: false,
+    },
+    phoneNumber: {
+      mutable: true,
+      required: false,
+    },
+  },
 });
