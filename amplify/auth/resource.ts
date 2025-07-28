@@ -22,5 +22,34 @@ export const auth = defineAuth({
       mutable: true,
       required: false,
     },
+    // Custom attributes
+    "custom:organizationName": {
+      dataType: "String",
+      mutable: true,
+      maxLen: 100,
+      minLen: 1,
+    },
+    "custom:municipality": {
+      dataType: "String",
+      mutable: true,
+      maxLen: 100,
+      minLen: 1,
+    },
+    "custom:accountType": {
+      dataType: "String",
+      mutable: true,
+      maxLen: 20,
+      minLen: 1,
+    },
+    "custom:accountTier": {
+      dataType: "String",
+      mutable: true,
+      maxLen: 20,
+      minLen: 1,
+    },
+    "custom:signUpForUpdates": {
+      dataType: "Boolean",
+      mutable: true,
+    },
   },
 });

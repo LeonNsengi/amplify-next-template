@@ -192,9 +192,15 @@ export default function App() {
         // which is exactly what AWS Cognito expects
         userAttributes.phone_number = customSignUpData.phoneNumber;
       }
-      // Note: Custom attributes are not supported in Amplify Gen2 auth schema
-      // These will be stored in clientMetadata for now
-      // In a production app, you'd typically store these in a separate database table
+      
+      // Add custom attributes to user attributes
+      userAttributes['custom:organizationName'] = customSignUpData.organizationName;
+      if (customSignUpData.municipality) {
+        userAttributes['custom:municipality'] = customSignUpData.municipality;
+      }
+      userAttributes['custom:accountType'] = 'ORGANIZATION';
+      userAttributes['custom:accountTier'] = 'FREE';
+      userAttributes['custom:signUpForUpdates'] = customSignUpData.signUpForUpdates ? 'true' : 'false';
 
       const signUpInput: SignUpInput = {
         username: customSignUpData.email,
@@ -255,26 +261,6 @@ export default function App() {
         }
       });
 
-      // Create User record in database
-      try {
-        const userRecord = await client.models.User.create({
-          accountType: 'ORGANIZATION', // Default to ORGANIZATION since we're collecting org name
-          name: `${customSignUpData.firstName || ''} ${customSignUpData.lastName || ''}`.trim() || customSignUpData.email,
-          email: customSignUpData.email,
-          organizationName: customSignUpData.organizationName,
-          municipality: customSignUpData.municipality || null,
-          accountTier: 'FREE',
-          isEmailVerified: true,
-          isActive: true,
-          registeredAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-        });
-        console.log('User record created:', userRecord);
-      } catch (error) {
-        console.error('Failed to create user record:', error);
-        // Don't throw error here as the user is already signed in
-      }
-
       setShowSignUpConfirmation(false);
       setSignUpConfirmationCode("");
       setCustomSignUpData({
@@ -318,31 +304,9 @@ export default function App() {
     try {
       const attributes = await fetchUserAttributes();
       
-      // Get user data from database
-      let userData = null;
-      try {
-        const users = await client.models.User.list({
-          filter: {
-            email: { eq: attributes.email }
-          }
-        });
-        userData = users.data[0];
-      } catch (error) {
-        console.error('Failed to fetch user data from database:', error);
-      }
-      
-      // Combine standard attributes with database data
-      const enhancedAttributes = {
-        ...attributes,
-        // Add custom attributes from database
-        'custom:organization_name': userData?.organizationName || 'Not provided',
-        'custom:municipality': userData?.municipality || 'Not provided',
-        'custom:account_type': userData?.accountType || 'Not provided',
-        'custom:account_tier': userData?.accountTier || 'Not provided',
-        'custom:registered_at': userData?.registeredAt ? new Date(userData.registeredAt).toLocaleDateString() : 'Not provided'
-      };
-      
-      setUserAttributes(enhancedAttributes);
+      // The custom attributes are now part of the Cognito user attributes
+      // No need to fetch from database for display purposes
+      setUserAttributes(attributes);
     } catch (error) {
       console.error('Failed to load user attributes:', error);
       setError('Failed to load user profile');
@@ -440,11 +404,11 @@ export default function App() {
       family_name: 'Last Name',
       nickname: 'Nickname',
       name: 'Full Name',
-      'custom:organization_name': 'Organization Name',
+      'custom:organizationName': 'Organization Name',
       'custom:municipality': 'Municipality',
-      'custom:account_type': 'Account Type',
-      'custom:account_tier': 'Account Tier',
-      'custom:registered_at': 'Registration Date',
+      'custom:accountType': 'Account Type',
+      'custom:accountTier': 'Account Tier',
+      'custom:signUpForUpdates': 'Sign Up for Updates',
       'custom:display_name': 'Display Name'
     };
     return displayNames[key] || key;
@@ -830,8 +794,8 @@ export default function App() {
                     <strong>Tip:</strong> You can add attributes like First Name, Last Name, Phone Number, etc. 
                     These will be stored with your account and can be used for personalization.
                     <br />
-                    <strong>Note:</strong> Custom attributes like Organization Name and Municipality are stored in clientMetadata 
-                    and would typically be processed by Lambda triggers in a production application.
+                    <strong>Note:</strong> Custom attributes like Organization Name and Municipality are now stored directly 
+                    in your Cognito user profile and will be available across all your devices.
                   </p>
                 </div>
               ) : (
